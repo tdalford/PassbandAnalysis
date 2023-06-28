@@ -1,0 +1,124 @@
+#+title: Tests
+
+ Figured out: the problem was I have to make sure that I swap the X and Y axes!
+
+#+BEGIN_SRC jupyter-julia
+using PassbandAnalysis
+params = load_act_params()
+act_data = load_act_data();
+total_band_errors = get_total_band_errors(act_data, params);
+#+END_SRC
+
+#+RESULTS:
+: [36m[1m[ [22m[39m[36m[1mInfo: [22m[39mPrecompiling PassbandAnalysis [9bfe21a6-6ba2-48be-a33e-d5efdc5c8b1d]
+: WARNING: using Plots.center in module PassbandAnalysis conflicts with an existing identifier.
+
+#+BEGIN_SRC jupyter-julia
+function test_indiv_error(
+    band_errs::Dict, key::String; prop_sys_error::Bool=true,
+    prop_stat_error::Bool=true, prop_freq_shift::Bool=false)
+
+    centers = []
+    for i=1:10000
+    freqs, band = indiv_error_prop(
+        act_data["data_dict"][key].frequencies, band_errs[key]["mean_band"],
+        band_errs[key]["upper_systematic"],
+        band_errs[key]["lower_systematic"],
+        band_errs[key]["statistical_sample"], band_errs[key]["rms"],
+            prop_sys_error, prop_stat_error, prop_freq_shift)
+    center_val = PassbandAnalysis.center(freqs, normalize(band),
+                                         params["int_bounds"][key])
+    push!(centers, center_val)
+    end
+    return mean(centers), std(centers)
+end
+
+# total_band_errors = get_total_band_errors()
+pct_errs = Dict()
+for key in keys(total_band_errors)
+    # check stat
+    pct_errs[key] = Dict()
+    m, s = test_indiv_error(total_band_errors, key, prop_sys_error=false)
+    pct_errs[key]["stat"] = (m, s, 100(s/m))
+
+    m, s = test_indiv_error(total_band_errors, key, prop_stat_error=false)
+    pct_errs[key]["sys"] = (m, s, 100(s/m))
+
+    m, s = test_indiv_error(total_band_errors, key)
+    pct_errs[key]["sys+stat"] = (m, s, 100(s/m))
+
+    m, s = test_indiv_error(total_band_errors, key, prop_stat_error=false,
+                            prop_sys_error=false, prop_freq_shift=true)
+    pct_errs[key]["freq"] = (m, s, 100(s/m))
+
+    m, s = test_indiv_error(total_band_errors, key, prop_freq_shift=true)
+    pct_errs[key]["total"] = (m, s, 100(s/m))
+end
+
+for label in ["PA4_150", "PA4_220", "PA5_90", "PA5_150", "PA6_90", "PA6_150",
+              "PA7_27", "PA7_37"]
+    errs = pct_errs[label]
+    @printf("%s & %.2f%% & %.2f%% & %.2f%% \\ \n",
+           label, errs["stat"][3], errs["sys"][3], errs["freq"][3])
+end
+#+END_SRC
+
+#+RESULTS:
+: PA4_150 & 0.08% & 0.12% & 0.78% \
+: PA4_220 & 0.13% & 0.35% & 1.57% \
+: PA5_90 & 0.14% & 0.05% & 0.98% \
+: PA5_150 & 0.11% & 0.09% & 0.87% \
+: PA6_90 & 0.23% & 0.07% & 1.20% \
+: PA6_150 & 0.08% & 0.11% & 0.73% \
+: PA7_27 & 0.17% & 0.00% & 1.03% \
+: PA7_37 & 0.49% & 0.02% & 3.29% \
+
+#+BEGIN_SRC jupyter-julia
+pythonplot()
+p = plot_monte_carlo(total_band_errors, freq_shift=true,
+                     act_data, params);
+plot!(xlim=(20, 350), ylim=(1e-3, 1.1),
+      xticks=[50, 100, 200, 300], #yticks=[1e-3, 1e-2, 1e-1, 1e0],
+      ylabel="Normalized Transmission", yscale=:identity,
+      xscale=:log10, thickness_scaling=1.5, size=(800, 400),
+      xformatter=x->string(convert(Int, round(x, digits=0))),
+      legend=:outerright)
+plot!(title="Final passbands with combined \n statistical and systematic errors",
+      top_margin=10Plots.mm, left_margin=10Plots.mm, right_margin=10Plots.mm,
+      bottom_margin=10Plots.mm, show=true, legendbackgroundcolor=false);
+#+END_SRC
+
+#+RESULTS:
+[[file:./.ob-jupyter/fc15d86af7dace457f34cd97072436a9fe3f4e78.png]]
+
+** Plot all PA7 27
+
+#+BEGIN_SRC jupyter-julia
+using DelimitedFiles
+fname = "/Users/talford/Downloads/bandpasses/LF_filter_OMT.txt"
+sim_LF, _ = readdlm(fname, ' ', Float64, header=true);
+default(margin=4Plots.mm, fontfamily="times")
+
+gr()
+arr = "PA7_27"
+n_bands = length(total_band_errors[arr]["mean_array"])
+p = PassbandAnalysis.plot_all_bands(total_band_errors[arr], params, arr,
+                                    alpha=2/sqrt(n_bands), color=:gray,
+                                    xlabel="Frequency [GHz]",
+                                    renormalize_average=false)
+
+arr = "PA7_37"
+n_bands = length(total_band_errors[arr]["mean_array"])
+p = PassbandAnalysis.plot_all_bands!(total_band_errors[arr], params, arr,
+                                    alpha=2/sqrt(n_bands), color=:gray,
+                                    renormalize_average=false)
+plot!(sim_LF[:, 1], normalize(sim_LF[:, 2]), color="black", ls=:dash)
+plot!(sim_LF[:, 1], normalize(sim_LF[:, 3]), color="black", ls=:dash,
+      show=true, xlim=(20, 60))
+#+END_SRC
+
+#+RESULTS:
+[[file:./.ob-jupyter/1d2f0df7440f422a88b75de472681ae473394d25.svg]]
+
+Next step: color-code by offset from center???
+oh man that would be kinda crazy
